@@ -1,7 +1,6 @@
-title: "Implementing Max Flow on a GPU"
-description: "A project website for max-flow GPU implementation"
+title: "Parallelizing Max Flow on a GPU"
+description: "Our website detailing the progress of our max-flow GPU implementation project for CMU's 15-618."
 theme: minima  # Uses the default GitHub Pages theme
-author: "Your Name"
 baseurl: "/max-flow-gpu"  # Needed if using a project site (not user.github.io)
 url: "https://achstar.github.io"
 
