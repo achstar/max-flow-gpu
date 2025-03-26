@@ -1,0 +1,17 @@
+title: "Implementing Max Flow on a GPU"
+description: "A project website for max-flow GPU implementation"
+theme: minima  # Uses the default GitHub Pages theme
+author: "Your Name"
+baseurl: "/max-flow-gpu"  # Needed if using a project site (not user.github.io)
+url: "https://achstar.github.io"
+
+# Navigation (Optional)
+header_pages:
+  - index.md
+  - proposal.md
+
+# Enable Markdown & Plugins
+markdown: kramdown
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
