@@ -28,6 +28,7 @@ class Graph
     vector<Vertex> vertices;
     int source_node;
     int sink_node;
+    int excess_total = 0;
 
     void init_preflow(int s);
 
@@ -38,7 +39,7 @@ class Graph
 public:
 
     void addEdge(int src, int dest, int capacity, int flow); // function to add an edge
-
+    int check_excess();
     int maxFlow(int s, int t); // function that returns maximum flow from source s to sink t
     Graph(int n, int m, int source, int sink);
 };
