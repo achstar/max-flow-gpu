@@ -8,6 +8,9 @@ struct Edge
     int dest;
     int capacity;   // initialize to 0 for reverse edges, change as we go
     int flow = 0; // don't need value for residual flow, it's the same as outgoing flow
+    bool operator==(const Edge& other) const {
+        return src == other.src && dest == other.dest;
+    }
 };
 
 struct Vertex
@@ -20,20 +23,22 @@ struct Vertex
 
 class Graph
 {
+    int N;
+    int M;
     vector<Vertex> vertices;
     int source_node;
     int sink_node;
-    
+
     void init_preflow(int s);
 
-    bool push(int u);
+    bool push(Vertex& vertex);
 
-    void relabel(int u);
+    void relabel(Vertex& vertex);
 
 public:
 
     void addEdge(int src, int dest, int capacity, int flow); // function to add an edge
 
     int maxFlow(int s, int t); // function that returns maximum flow from source s to sink t
-    Graph(int m, int n, int source, int sink);
+    Graph(int n, int m, int source, int sink);
 };

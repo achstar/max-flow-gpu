@@ -9,6 +9,8 @@
 #include <vector>
 #include <unordered_map>
 #include "graph_seq.hpp"
+#include <algorithm>
+#include <set>
 
 std::string input_file;
 std::string version;
@@ -88,9 +90,21 @@ int main(int argc, char** argv)
     }
 
     Graph g(num_nodes, num_edges, source_node, sink_node);
-    
+    set<pair<int, int>> edge_set;
     for (int i = 0; i < num_edges; i++)
     {
         g.addEdge(edges[i].src, edges[i].dest, edges[i].capacity, 0);
+        edge_set.insert({edges[i].src, edges[i].dest});
     } 
+    // below is broken/doesn't work
+    for (int i = 0; i < num_edges; i++)
+    {
+        pair<int, int> reverse_edge = {edges[i].dest, edges[i].src};
+        if(edge_set.find(reverse_edge) == edge_set.end()){
+            printf("hello\n");
+            g.addEdge(edges[i].dest, edges[i].src, 0, 0);
+        }
+    } 
+    int result = g.maxFlow(source_node, sink_node);
+    printf("Result: %d\n", result);
 }
