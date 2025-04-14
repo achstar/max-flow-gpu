@@ -70,17 +70,17 @@ int main(int argc, char** argv)
             iss >> temp_node >> classifier;
             if (classifier == "s")
             {
-                source_node = temp_node;
+                source_node = temp_node-1;
             }
             else if (classifier == "t")
             {
-                sink_node = temp_node;
+                sink_node = temp_node-1;
             }
         }
         else if (type == "a") {
             int u, v, cap;
             iss >> u >> v >> cap;
-            Edge e = {.src = u, .dest = v, .capacity = cap};
+            Edge e = {.src = u-1, .dest = v-1, .capacity = cap};
             edges.push_back(e);
         }
         else
@@ -96,12 +96,13 @@ int main(int argc, char** argv)
         g.addEdge(edges[i].src, edges[i].dest, edges[i].capacity, 0);
         edge_set.insert({edges[i].src, edges[i].dest});
     } 
-    // below is broken/doesn't work
+    
+    // add reverse edges
     for (int i = 0; i < num_edges; i++)
     {
         pair<int, int> reverse_edge = {edges[i].dest, edges[i].src};
+        // check if reverse edge already exists
         if(edge_set.find(reverse_edge) == edge_set.end()){
-            printf("hello\n");
             g.addEdge(edges[i].dest, edges[i].src, 0, 0);
         }
     } 

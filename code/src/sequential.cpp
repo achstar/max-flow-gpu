@@ -1,5 +1,7 @@
 #include "graph_seq.hpp"
 #include <queue>
+
+// graph constructor to initialize nodes
 Graph::Graph(int n, int m, int source, int sink) {
     source_node = source;
     sink_node = sink;
@@ -20,15 +22,16 @@ void Graph::addEdge(int src, int dest, int capacity, int flow)
 // initializes preflow for edges coming out of source
 void Graph::init_preflow(int s)
 {
-    // go through all outgoing edges from source
     vertices[s].label++;
+    // go through all outgoing edges from source
     for(int i = 0; i < vertices[s].outgoing_edges.size(); i++){
         Edge& curr_edge = vertices[s].outgoing_edges[i];
-        // update flow for this edge
+        Vertex &dest_vertex = vertices[curr_edge.dest];
+
+        // update flow for this edge --> capacity
         curr_edge.flow = curr_edge.capacity;
         curr_edge.capacity = 0;
 
-        Vertex &dest_vertex = vertices[curr_edge.dest];
         // update excess on node we push to
         dest_vertex.excess += curr_edge.flow;
 
@@ -37,7 +40,6 @@ void Graph::init_preflow(int s)
             if(dest_vertex.outgoing_edges[j].dest == s){
                 dest_vertex.outgoing_edges[j].capacity += curr_edge.flow;
                 excess_total += curr_edge.flow;
-
             }
         }        
     }
@@ -62,7 +64,6 @@ bool Graph::push(Vertex& vertex){
                 vertex.excess -= flow;
                 dest_vertex.excess += flow;
                 // update reverse flow 
-                // get corresponding edge
                 for(int j = 0; j < dest_vertex.outgoing_edges.size(); j++){
                     if(dest_vertex.outgoing_edges[j].dest == vertex.id){
                         // add to capacity of residual graph edge
@@ -80,35 +81,9 @@ bool Graph::push(Vertex& vertex){
 void Graph::relabel(Vertex& vertex){
     // printf("relabeling vertex %d from %d to %d\n...", vertex.id, vertex.label, vertex.label+1);
     vertex.label++;
-    // find adjacent node with lowest height + we can push to
-    // printf("Relabeling vertex %d from %d...\n", vertex.id, vertex.label);
-    // int min_height = N + 5;
-    // for(int i = 0; i < vertex.outgoing_edges.size(); i++)
-    // {
-    //     if(vertex.outgoing_edges[i].capacity != 0){
-    //         Vertex& dest_vertex = vertices[vertex.outgoing_edges[i].dest];
-    //         if(dest_vertex.label < min_height)
-    //         {
-    //             min_height = dest_vertex.label;
-    //         }
-    //     }
-    // }
-    // if(min_height != N + 5){
-    //     vertex.label = min_height + 1; 
-    // }
-    // printf("Relabeled vertex %d to %d \n", vertex.id, vertex.label);
-
 
 }
 
-int Graph::check_excess(){
-    for(int i = 1; i < vertices.size()-1; i++){
-        if(vertices[i].excess != 0){
-            return -1;
-        }
-    }
-    return 0;
-}
 int Graph::maxFlow(int s, int t)
 {
     init_preflow(s);
@@ -119,21 +94,10 @@ int Graph::maxFlow(int s, int t)
     //         printf("{%d, %d} has cap: %d and flow: %d\n", vertices[i].outgoing_edges[j].src,vertices[i].outgoing_edges[j].dest, vertices[i].outgoing_edges[j].capacity,vertices[i].outgoing_edges[j].flow);
     //     }
     // }
-    queue<int> active;
-
-    for(Vertex& v : vertices) {
-        if(v.id != t) {
-            active.push(v.id);
-        }
-    }
-    printf("done initializing excess queue\n");
 
     while(excess_total != vertices[0].excess + vertices[N-1].excess){
         // printf("excess total: %d e(s): %d, e(t): %d\n", excess_total, vertices[0].excess, vertices[N-1].excess );
         for(Vertex& v : vertices){
-            if(v.id == vertices[0].id){
-                // printf("ASDFJASDLKFJ vertex 1 has excess %d\n", v.excess);
-            }
             if(v.excess != 0 && v.id != t){
                 if(v.label > N + 10){
                     excess_total = vertices[0].excess + vertices[N-1].excess;
@@ -142,25 +106,9 @@ int Graph::maxFlow(int s, int t)
                 bool pushed = push(v);
                 if (!pushed) {
                     relabel(v);
-                    //push(v);
-                    // for(int i = 0; i < vertices.size(); i++){
-                    //     printf("\nVertex %d - label: %d, excess: %d\n", vertices[i].id, vertices[i].label, vertices[i].excess);
-                    //     for(int j = 0; j < vertices[i].outgoing_edges.size(); j++){
-                    //         printf("{%d, %d} has cap: %d and flow: %d\n", vertices[i].outgoing_edges[j].src,vertices[i].outgoing_edges[j].dest, vertices[i].outgoing_edges[j].capacity,vertices[i].outgoing_edges[j].flow);
-                    //     }
-                    // }
                 }
-                // else{
-                //     for(int i = 0; i < vertices.size(); i++){
-                //         printf("\nVertex %d - label: %d, excess: %d\n", vertices[i].id, vertices[i].label, vertices[i].excess);
-                //         for(int j = 0; j < vertices[i].outgoing_edges.size(); j++){
-                //             printf("{%d, %d} has cap: %d and flow: %d\n", vertices[i].outgoing_edges[j].src,vertices[i].outgoing_edges[j].dest, vertices[i].outgoing_edges[j].capacity,vertices[i].outgoing_edges[j].flow);
-                //         }
-                //     }
-                // }
             }
         }
     }
-    // printf("t: %d", t);
     return vertices[t].excess;
 }
