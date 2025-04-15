@@ -9,6 +9,7 @@
 #include <vector>
 #include <unordered_map>
 #include "graph_seq.hpp"
+#include "cycleTimer.h"
 #include <algorithm>
 #include <set>
 
@@ -107,6 +108,7 @@ int main(int argc, char** argv)
         }
     } 
     int result;
+    double startTime = CycleTimer::currentSeconds();
     if (version == "seq")
     {
         result = g.maxFlowSeq(source_node, sink_node);
@@ -115,5 +117,7 @@ int main(int argc, char** argv)
     {
         result = g.maxFlowParallel(source_node, sink_node);
     }
+    double endTime = CycleTimer::currentSeconds();
+    printf("Time: %f\n", endTime - startTime);
     printf("Result: %d\n", result);
 }

@@ -109,8 +109,6 @@ int Graph::maxFlowSeq(int s, int t)
                 }
             }
         }
-        printf("Excess total: %d\n", excess_total);
-        printf("Excess target: %d\n", vertices[0].excess + vertices[N-1].excess);
     }
     return vertices[t].excess;
 }

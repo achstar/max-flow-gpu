@@ -11,7 +11,7 @@ __global__ void
 push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf_adj)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if (u < num_nodes)
+    if ((u < num_nodes) && (u != sink))
     {
         int cycle = num_nodes; // replace with KERNEL_CYCLES?
         while (cycle > 0)
@@ -19,33 +19,35 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
             if ((excess[u] > 0) && (labels[u] < num_nodes))
             {
                 int e_prime = excess[u];
-                int l_prime = INF;
-                int v_prime = 0;
+                int min_label = INF;
+                int min_v = 0;
                 for (int v = 0; v < num_nodes; v++)
                 {
-                    printf("Flow at node (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
                     if (cf_adj[u*num_nodes + v] > 0)
                     {
-                        int l_double_prime = labels[v];
-                        if (l_double_prime < l_prime)
+                        // printf("Residual at edge (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
+                        int curr_label = labels[v];
+                        if (curr_label < min_label)
                         {
-                            v_prime = v;
-                            l_prime = l_double_prime;
+                            min_v = v;
+                            min_label = curr_label;
                         }
-                        printf("L prime is %d, v_prime is %d, u is %d\n", l_prime, v_prime, u);
                     }
                 }
-                if (labels[u] > l_prime)
+                // printf("lowest dest node is %d, with label %d, u is %d\n", min_v, min_label, u);
+                if (labels[u] > min_label)
                 {
-                    int d = min(e_prime, cf_adj[u*num_nodes + v_prime]);
-                    atomicAdd(&cf_adj[v_prime*num_nodes + u], d);
-                    atomicSub(&cf_adj[u*num_nodes + v_prime], d);
-                    atomicAdd(&excess[v_prime], d);
+                    int d = min(e_prime, cf_adj[u*num_nodes + min_v]);
+                    atomicAdd(&cf_adj[min_v*num_nodes + u], d);
+                    atomicSub(&cf_adj[u*num_nodes + min_v], d);
+                    atomicAdd(&excess[min_v], d);
                     atomicSub(&excess[u], d);
+                    // printf("Pushing %d at edge (%d, %d)\n", d, u, min_v);
                 }
                 else
                 {
-                    labels[u] = l_prime + 1;
+                    labels[u] = min_label + 1;
+                    // printf("Relabeling node %d to %d\n", u, labels[u]);
                 }
             }
             cycle--;
@@ -116,14 +118,15 @@ int Graph::maxFlowParallel(int s, int t)
     // necessary to have "flattened" ds for GPU locality
     std::vector<int> h_cf(N*N, 0); // will need to adjust this for larger test cases because we will run out of memory
     init_preflow(s);
-    printf("Done initializing preflow with excess total %d\n", excess_total);
+    // printf("Done initializing preflow with excess total %d\n", excess_total);
     for (int u = 0; u < N; u++) {
         h_labels[u] = vertices[u].label;
         h_excess[u] = vertices[u].excess;
+        // printf("Node %d has label %d and excess %d\n", u, h_labels[u], h_excess[u]);
         for (const Edge& e : vertices[u].outgoing_edges) {
             h_cf[e.src*N + e.dest] = e.capacity; // "forward" flow
             // No need to add reverse flow since that should already be accounted for in init_preflow?
-            printf("Residual capacity for (%d, %d) is %d\n", e.src, e.dest, e.capacity);
+            // printf("Residual capacity for (%d, %d) is %d\n", e.src, e.dest, e.capacity);
         }
     }
 
@@ -136,20 +139,20 @@ int Graph::maxFlowParallel(int s, int t)
     cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cf, h_cf.data(), N*N*sizeof(int), cudaMemcpyHostToDevice);
 
-    printf("Starting loop\n");
-    while (excess_total != h_excess[0] + h_excess[N-1])
+    // printf("Starting loop\n");
+    while (excess_total != h_excess[s] + h_excess[t])
     {
         cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
-        printf("Launching kernel\n");
+        // printf("Launching kernel\n");
         push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf);
-        printf("Launched kernel\n");
+        // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
 
         globalRelabel(N, s, t, h_excess, h_labels, h_cf, marked);
-        printf("Excess total: %d\n", excess_total);
-        printf("Excess target: %d\n", h_excess[0] + h_excess[N-1]);
+        // printf("Excess total: %d\n", excess_total);
+        // printf("Excess target: %d\n", h_excess[s] + h_excess[t]);
     }
     cudaFree(d_excess);
     cudaFree(d_labels);

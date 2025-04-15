@@ -42,7 +42,7 @@ def generate_random_test(num_nodes, num_edges):
             u = random.randint(1, num_nodes - 1)
             v = random.randint(u + 1, num_nodes)
             if u != v and (u, v) not in edges:
-                cap = random.randint(5, 20) # maybe parametrize this too?
+                cap = random.randint(5, 2000) # maybe parametrize this too?
                 f.write(f"a {u} {v} {cap}\n")
                 edges.add((u, v))
     
