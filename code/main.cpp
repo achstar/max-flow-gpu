@@ -106,6 +106,14 @@ int main(int argc, char** argv)
             g.addEdge(edges[i].dest, edges[i].src, 0, 0);
         }
     } 
-    int result = g.maxFlow(source_node, sink_node);
+    int result;
+    if (version == "seq")
+    {
+        result = g.maxFlowSeq(source_node, sink_node);
+    }
+    else if (version == "cuda")
+    {
+        result = g.maxFlowParallel(source_node, sink_node);
+    }
     printf("Result: %d\n", result);
 }

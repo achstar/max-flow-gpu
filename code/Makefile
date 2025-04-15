@@ -21,7 +21,7 @@ all: $(BIN)
 
 # Link all object files into one binary
 $(BIN): $(MAIN_OBJ) $(SEQ_OBJ) $(CUDA_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(NVCC) -std=c++17 -o $@ $^
 
 # Compile C++ files
 %.o: %.cpp
