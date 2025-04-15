@@ -23,6 +23,7 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                 int v_prime = 0;
                 for (int v = 0; v < num_nodes; v++)
                 {
+                    printf("Flow at node (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
                     if (cf_adj[u*num_nodes + v] > 0)
                     {
                         int l_double_prime = labels[v];
@@ -31,6 +32,7 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                             v_prime = v;
                             l_prime = l_double_prime;
                         }
+                        printf("L prime is %d, v_prime is %d, u is %d\n", l_prime, v_prime, u);
                     }
                 }
                 if (labels[u] > l_prime)
@@ -119,8 +121,9 @@ int Graph::maxFlowParallel(int s, int t)
         h_labels[u] = vertices[u].label;
         h_excess[u] = vertices[u].excess;
         for (const Edge& e : vertices[u].outgoing_edges) {
-            h_cf[e.src*N + e.dest] = e.capacity - e.flow; // "forward" flow
+            h_cf[e.src*N + e.dest] = e.capacity; // "forward" flow
             // No need to add reverse flow since that should already be accounted for in init_preflow?
+            printf("Residual capacity for (%d, %d) is %d\n", e.src, e.dest, e.capacity);
         }
     }
 
@@ -131,12 +134,12 @@ int Graph::maxFlowParallel(int s, int t)
     cudaMalloc((void **)&d_cf, N*N*sizeof(int));
 
     cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cf, h_cf.data(), N*N*sizeof(int), cudaMemcpyHostToDevice);
 
     printf("Starting loop\n");
     while (excess_total != h_excess[0] + h_excess[N-1])
     {
+        cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
         printf("Launching kernel\n");
         push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf);
         printf("Launched kernel\n");
