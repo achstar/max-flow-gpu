@@ -12,6 +12,7 @@
 #include "cycleTimer.h"
 #include <algorithm>
 #include <set>
+#include <chrono>
 
 std::string input_file;
 std::string version;
@@ -108,6 +109,7 @@ int main(int argc, char** argv)
         }
     } 
     int result;
+    auto start = chrono::high_resolution_clock::now();
     double startTime = CycleTimer::currentSeconds();
     if (version == "seq")
     {
@@ -118,6 +120,8 @@ int main(int argc, char** argv)
         result = g.maxFlowParallel(source_node, sink_node);
     }
     double endTime = CycleTimer::currentSeconds();
-    printf("Time: %f\n", endTime - startTime);
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed = end - start;
+    printf("Time: %f\n", elapsed.count());
     printf("Result: %d\n", result);
 }

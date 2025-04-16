@@ -37,12 +37,14 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                 // printf("lowest dest node is %d, with label %d, u is %d\n", min_v, min_label, u);
                 if (labels[u] > min_label)
                 {
+                    // printf("Excess of %d is %d\n", min_v, excess[min_v]);
                     int d = min(e_prime, cf_adj[u*num_nodes + min_v]);
                     atomicAdd(&cf_adj[min_v*num_nodes + u], d);
                     atomicSub(&cf_adj[u*num_nodes + min_v], d);
                     atomicAdd(&excess[min_v], d);
                     atomicSub(&excess[u], d);
                     // printf("Pushing %d at edge (%d, %d)\n", d, u, min_v);
+                    // printf("Excess of %d is now updated to %d\n", min_v, excess[min_v]);
                 }
                 else
                 {
@@ -139,7 +141,7 @@ int Graph::maxFlowParallel(int s, int t)
     cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cf, h_cf.data(), N*N*sizeof(int), cudaMemcpyHostToDevice);
 
-    // printf("Starting loop\n");
+    printf("Starting loop\n");
     while (excess_total != h_excess[s] + h_excess[t])
     {
         cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
@@ -148,11 +150,18 @@ int Graph::maxFlowParallel(int s, int t)
         // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
+        // cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
 
-        globalRelabel(N, s, t, h_excess, h_labels, h_cf, marked);
+        // globalRelabel(N, s, t, h_excess, h_labels, h_cf, marked);
+        for(int l : h_labels){
+            if(l >= N){
+                // printf("setting excess_total now ....\n");
+                excess_total = h_excess[s] + h_excess[t];
+                break;
+            }
+        }
         // printf("Excess total: %d\n", excess_total);
-        // printf("Excess target: %d\n", h_excess[s] + h_excess[t]);
+        // printf("Excess target: %d\n", h_excess[t]);
     }
     cudaFree(d_excess);
     cudaFree(d_labels);
