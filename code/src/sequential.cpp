@@ -6,6 +6,7 @@ Graph::Graph(int n, int m, int source, int sink) {
     source_node = source;
     sink_node = sink;
     N = n;
+    M = 0; // increment in addEdge
     for (int i = 0; i < n; i++) {
         Vertex v;
         v.id = i;
@@ -17,6 +18,7 @@ void Graph::addEdge(int src, int dest, int capacity, int flow)
 {
     Edge new_edge = {src, dest, capacity, flow};
     vertices[src].outgoing_edges.push_back(new_edge);
+    M++;
 }
 
 // initializes preflow for edges coming out of source

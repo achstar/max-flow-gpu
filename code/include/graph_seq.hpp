@@ -1,6 +1,9 @@
 #include <vector>
 #include <string>
 #include <queue>
+#include <unordered_map>
+#include <utility>
+#include <functional>
 using namespace std;
 
 struct Edge
@@ -22,6 +25,13 @@ struct Vertex
     vector<Edge> outgoing_edges;
 };
 
+struct pair_hash {
+    template <typename T1, typename T2>
+    std::size_t operator()(const std::pair<T1, T2>& p) const {
+        return std::hash<T1>{}(p.first) ^ (std::hash<T2>{}(p.second) << 1);
+    }
+};
+
 class Graph
 {
     int N;
@@ -36,7 +46,7 @@ class Graph
     bool push(Vertex& vertex);
 
     void relabel(Vertex& vertex);
-    void globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf_adj, std::vector<bool>& marked);
+    void globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index, std::vector<bool>& marked);
 
 public:
 
