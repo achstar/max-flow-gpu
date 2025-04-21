@@ -4,7 +4,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include "graph_seq.hpp"
-
+#include <chrono>
 #define INF 1e9
 
 __global__ void
@@ -157,7 +157,7 @@ int Graph::maxFlowParallel(int s, int t)
     std::vector<int> h_reverse_edge_index(M, 0);
     std::unordered_map<std::pair<int,int>, int, pair_hash> edge_to_index;
     init_preflow(s);
-    // printf("Done initializing preflow with excess total %d\n", excess_total);
+    printf("Done initializing preflow with excess total %d\n", excess_total);
     int index = 0;
     for (int u = 0; u < N; u++) {
         h_labels[u] = vertices[u].label;
@@ -165,8 +165,9 @@ int Graph::maxFlowParallel(int s, int t)
         // printf("Node %d has label %d and excess %d\n", u, h_labels[u], h_excess[u]);
         h_edge_starts[u] = index;
         for (const Edge& e : vertices[u].outgoing_edges) {
-            h_edge_dests.push_back(e.dest);
-            h_cf.push_back(e.capacity);
+            h_edge_dests[index] = e.dest;
+            h_cf[index] = e.capacity;
+            // printf("Edge from %d to %d has capacity %d\n", e.src, e.dest, e.capacity);
             edge_to_index[{u, e.dest}] = index;
             index++;
             // No need to add reverse flow since that should already be accounted for in init_preflow?
@@ -196,7 +197,7 @@ int Graph::maxFlowParallel(int s, int t)
     cudaMemcpy(d_edge_starts, h_edge_starts.data(), (N+1)*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_edge_dests, h_edge_dests.data(), M*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_reverse_edge_index, h_reverse_edge_index.data(), M*sizeof(int), cudaMemcpyHostToDevice);
-
+    auto start = chrono::high_resolution_clock::now();
     printf("Starting loop\n");
     while (excess_total != h_excess[s] + h_excess[t])
     {
@@ -206,7 +207,7 @@ int Graph::maxFlowParallel(int s, int t)
         // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
-        // cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
 
         // globalRelabel(N, s, t, h_excess, h_labels, h_cf, marked);
         for(int l : h_labels){
@@ -225,5 +226,10 @@ int Graph::maxFlowParallel(int s, int t)
     cudaFree(d_edge_starts);
     cudaFree(d_edge_dests);
     cudaFree(d_reverse_edge_index);
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed = end - start;
+    printf("Time: %f\n", elapsed.count());
+    printf("Result: %d\n", h_excess[t]);
     return h_excess[t];
+
 }
