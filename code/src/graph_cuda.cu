@@ -5,73 +5,82 @@
 #include <math.h>
 #include "graph_seq.hpp"
 #include <chrono>
+#include <climits>
+#include <set>
 #define INF 1e9
 
 __global__ void
-push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf,  int* edge_starts, int* edge_dests, int* reverse_edge_index)
+push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf, int* edge_starts, int* edge_dests, int* reverse_edge_index, 
+            int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
     if ((u < num_nodes) && (u != sink))
     {
-        int cycle = num_nodes; // replace with KERNEL_CYCLES?
-        while (cycle > 0)
+        *lflag = 0;
+        if ((excess[u] > 0) && (labels[u] < num_nodes))
         {
-            if ((excess[u] > 0) && (labels[u] < num_nodes))
+            *lflag = 1;
+            int min_label = INF;
+            int start = edge_starts[u];
+            int end = edge_starts[u + 1];
+            for (int i = start; i < end; i++)
             {
-                int e_prime = excess[u];
-                int min_label = INF;
-                int min_v = 0;
-                // for (int v = 0; v < num_nodes; v++)
-                // {
-                //     if (cf_adj[u*num_nodes + v] > 0)
-                //     {
-                //         // printf("Residual at edge (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
-                //         int curr_label = labels[v];
-                //         if (curr_label < min_label)
-                //         {
-                //             min_v = v;
-                //             min_label = curr_label;
-                //         }
-                //     }
-                // }
-                int start = edge_starts[u];
-                int end = edge_starts[u + 1];
-                int min_edge_idx = 0;
-                for (int i = start; i < end; i++)
+                int curr_v = edge_dests[i];
+                int capacity = cf[i];
+                if (capacity > 0)
                 {
-                    int v = edge_dests[i];
-                    int capacity = cf[i];
-                    if (capacity > 0)
+                    // printf("Residual at edge (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
+                    int curr_label = labels[curr_v];
+                    if (curr_label < min_label)
                     {
-                        // printf("Residual at edge (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
-                        int curr_label = labels[v];
-                        if (curr_label < min_label)
-                        {
-                            min_v = v;
-                            min_label = curr_label;
-                            min_edge_idx = i;
-                        }
+                        *lflag = 0;
+                        *v = curr_v;
+                        min_label = curr_label;
+                        *edge_idx = i;
+                        break;
                     }
                 }
-                // printf("lowest dest node is %d, with label %d, u is %d\n", min_v, min_label, u);
-                if (labels[u] > min_label)
+            }
+        }
+        else
+        {
+            *lflag = 0;
+        }
+    }
+}
+
+__global__ void
+relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf, int* edge_starts, int* edge_dests, int* reverse_edge_index, 
+               int color, int* colors, int* lflag, int* v, int* edge_idx)
+{
+    unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int flag = *lflag;
+    int dest = *v;
+    int edge_index = *edge_idx;
+    if ((u < num_nodes) && (u != sink))
+    {
+        if ((colors[dest] == color) && (flag == 0))
+        {
+            int d = (excess[u] > cf[edge_index]) ? cf[edge_index] : excess[u]; // min
+            cf[reverse_edge_index[edge_index]] += d;
+            cf[edge_index] -= d;
+            excess[dest] += d;
+            excess[u] -= d;
+        }
+        if (flag == 1)
+        {
+            int min_label = INT_MAX;
+            int start = edge_starts[u];
+            int end = edge_starts[u+1];
+            for (int i = start; i < end; i++)
+            {
+                int neighbor = edge_dests[i];
+                if (labels[neighbor] < min_label)
                 {
-                    // printf("Excess of %d is %d\n", min_v, excess[min_v]);
-                    int d = min(e_prime, cf[min_edge_idx]);
-                    atomicAdd(&cf[reverse_edge_index[min_edge_idx]], d);
-                    atomicSub(&cf[min_edge_idx], d);
-                    atomicAdd(&excess[min_v], d);
-                    atomicSub(&excess[u], d);
-                    // printf("Pushing %d at edge (%d, %d)\n", d, u, min_v);
-                    // printf("Excess of %d is now updated to %d\n", min_v, excess[min_v]);
-                }
-                else
-                {
-                    labels[u] = min_label + 1;
-                    // printf("Relabeling node %d to %d\n", u, labels[u]);
+                    min_label = labels[neighbor];
                 }
             }
-            cycle--;
+            labels[u] = min_label + 1;
         }
     }
 }
@@ -174,40 +183,72 @@ int Graph::maxFlowParallel(int s, int t)
             // printf("Residual capacity for (%d, %d) is %d\n", e.src, e.dest, e.capacity);
         }
     }
-    h_edge_starts.push_back(index); // end index of last vertex
+    h_edge_starts[N] = index; // end index of last vertex
     // For populating rev_edge_index
+    std::vector<int> h_colors(M, -1); // will hold color index for each edge
+    std::unordered_map<int, std::set<int>> used_colors;
+    int max_color = 0;
     for (const auto& [key, idx] : edge_to_index) {
         int u = key.first;
         int v = key.second;
         int r_idx = edge_to_index[{v, u}];
         h_reverse_edge_index[idx] = r_idx;
-    }
 
+        int color = 0;
+        while (used_colors[u].count(color) || used_colors[v].count(color)) {
+            color++;
+        }
+        h_colors[idx] = color;
+        used_colors[u].insert(color);
+        used_colors[v].insert(color);
+        max_color = std::max(max_color, color);
+    }
+    int num_colors = max_color + 1;
     // Allocate device memory
-    int* d_excess, *d_labels, *d_edge_starts, *d_edge_dests, *d_cf, *d_reverse_edge_index;
+    int* d_excess, *d_labels, *d_edge_starts, *d_edge_dests, *d_cf, *d_reverse_edge_index, *d_colors, *d_lflag, *d_v, *d_edge_idx;
     cudaMalloc((void **)&d_excess, N*sizeof(int));
     cudaMalloc((void **)&d_labels, N*sizeof(int));
     cudaMalloc((void **)&d_edge_starts, (N + 1)*sizeof(int));
     cudaMalloc((void **)&d_edge_dests, M*sizeof(int));
     cudaMalloc((void **)&d_cf, M*sizeof(int));
     cudaMalloc((void **)&d_reverse_edge_index, M*sizeof(int));
+    cudaMalloc((void **)&d_colors, M*sizeof(int));
+    cudaMalloc((void **)&d_lflag, sizeof(int));
+    cudaMalloc((void **)&d_v, sizeof(int));
+    cudaMalloc((void **)&d_edge_idx, sizeof(int));
 
     cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cf, h_cf.data(), M*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_edge_starts, h_edge_starts.data(), (N+1)*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_edge_dests, h_edge_dests.data(), M*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_reverse_edge_index, h_reverse_edge_index.data(), M*sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_colors, h_colors.data(), M*sizeof(int), cudaMemcpyHostToDevice);
+
+
     auto start = chrono::high_resolution_clock::now();
     printf("Starting loop\n");
     while (excess_total != h_excess[s] + h_excess[t])
     {
-        cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
+        // cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
+        int cycle = N;
+        while (cycle > 0)
+        {
+            push_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, d_lflag, d_v, d_edge_idx);
+            cudaDeviceSynchronize(); // needed?
+            for (int c = 0; c < num_colors; c++)
+            {
+                relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, c, d_colors, d_lflag, d_v, d_edge_idx);
+                cudaDeviceSynchronize(); // needed?
+            }
+            cycle--;
+        }
+        
         // printf("Launching kernel\n");
-        push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index);
+        // push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index);
         // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
+        // cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
 
         // globalRelabel(N, s, t, h_excess, h_labels, h_cf, marked);
         for(int l : h_labels){
