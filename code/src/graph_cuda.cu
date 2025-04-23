@@ -16,10 +16,10 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
     if ((u < num_nodes) && (u != sink))
     {
-        *lflag = 0;
+        lflag[u] = 0;
         if ((excess[u] > 0) && (labels[u] < num_nodes))
         {
-            *lflag = 1;
+            lflag[u] = 1;
             int min_label = INF;
             int start = edge_starts[u];
             int end = edge_starts[u + 1];
@@ -33,10 +33,11 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
                     int curr_label = labels[curr_v];
                     if (curr_label < min_label)
                     {
-                        *lflag = 0;
-                        *v = curr_v;
+                        lflag[u] = 0;
+                        v[u] = curr_v;
                         min_label = curr_label;
-                        *edge_idx = i;
+                        edge_idx[u] = i;
+                        printf("Index for node %d to %d is %d\n", u, curr_v, i);
                         break;
                     }
                 }
@@ -44,7 +45,7 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
         }
         else
         {
-            *lflag = 0;
+            lflag[u] = 0;
         }
     }
 }
@@ -54,13 +55,14 @@ relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, in
                int color, int* colors, int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    int flag = *lflag;
-    int dest = *v;
-    int edge_index = *edge_idx;
     if ((u < num_nodes) && (u != sink))
     {
-        if ((colors[dest] == color) && (flag == 0))
+        int flag = lflag[u];
+        int dest = v[u];
+        int edge_index = edge_idx[u];
+        if ((colors[edge_index] == color) && (flag == 0))
         {
+            printf("Handling push for edge %d, %d of color %d, edge index %d\n", u, dest, color, edge_index);
             int d = (excess[u] > cf[edge_index]) ? cf[edge_index] : excess[u]; // min
             cf[reverse_edge_index[edge_index]] += d;
             cf[edge_index] -= d;
@@ -198,6 +200,7 @@ int Graph::maxFlowParallel(int s, int t)
         while (used_colors[u].count(color) || used_colors[v].count(color)) {
             color++;
         }
+        printf("Edge %d to %d has color %d\n", u, v, color);
         h_colors[idx] = color;
         used_colors[u].insert(color);
         used_colors[v].insert(color);
@@ -213,9 +216,9 @@ int Graph::maxFlowParallel(int s, int t)
     cudaMalloc((void **)&d_cf, M*sizeof(int));
     cudaMalloc((void **)&d_reverse_edge_index, M*sizeof(int));
     cudaMalloc((void **)&d_colors, M*sizeof(int));
-    cudaMalloc((void **)&d_lflag, sizeof(int));
-    cudaMalloc((void **)&d_v, sizeof(int));
-    cudaMalloc((void **)&d_edge_idx, sizeof(int));
+    cudaMalloc((void **)&d_lflag, N*sizeof(int));
+    cudaMalloc((void **)&d_v, N*sizeof(int));
+    cudaMalloc((void **)&d_edge_idx, N*sizeof(int));
 
     cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cf, h_cf.data(), M*sizeof(int), cudaMemcpyHostToDevice);
@@ -237,6 +240,7 @@ int Graph::maxFlowParallel(int s, int t)
             cudaDeviceSynchronize(); // needed?
             for (int c = 0; c < num_colors; c++)
             {
+                printf("Relabeling color: %d\n", c);
                 relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, c, d_colors, d_lflag, d_v, d_edge_idx);
                 cudaDeviceSynchronize(); // needed?
             }
@@ -258,8 +262,8 @@ int Graph::maxFlowParallel(int s, int t)
                 break;
             }
         }
-        // printf("Excess total: %d\n", excess_total);
-        // printf("Excess target: %d\n", h_excess[t]);
+        printf("Excess total: %d\n", excess_total);
+        printf("Excess target: %d and %d\n", h_excess[t], h_excess[s]);
     }
     cudaFree(d_excess);
     cudaFree(d_labels);
@@ -267,6 +271,10 @@ int Graph::maxFlowParallel(int s, int t)
     cudaFree(d_edge_starts);
     cudaFree(d_edge_dests);
     cudaFree(d_reverse_edge_index);
+    cudaFree(d_colors);
+    cudaFree(d_lflag);
+    cudaFree(d_v);
+    cudaFree(d_edge_idx);
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double> elapsed = end - start;
     printf("Time: %f\n", elapsed.count());
