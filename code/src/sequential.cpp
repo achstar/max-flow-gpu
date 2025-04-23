@@ -83,20 +83,6 @@ bool Graph::push(Vertex& vertex){
 void Graph::relabel(Vertex& vertex){
     // printf("relabeling vertex %d from %d to %d\n...", vertex.id, vertex.label, vertex.label+1);
     vertex.label++;
-    // int min_height = N;
-    // for(int i = 0; i < vertex.outgoing_edges.size(); i++)
-    // {
-    //     if(vertex.outgoing_edges[i].capacity != 0){
-    //         Vertex& dest_vertex = vertices[vertex.outgoing_edges[i].dest];
-    //         if(dest_vertex.label < min_height)
-    //         {
-    //             min_height = dest_vertex.label;
-    //         }
-    //     }
-    // }
-    // if(min_height != N){
-    //     vertex.label = min_height + 1; 
-    // }
 
 }
 
