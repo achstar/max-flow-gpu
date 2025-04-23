@@ -45,6 +45,7 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
         }
         else
         {
+            edge_idx[u] = -1;
             lflag[u] = 0;
         }
     }
@@ -60,7 +61,7 @@ relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, in
         int flag = lflag[u];
         int dest = v[u];
         int edge_index = edge_idx[u];
-        if ((colors[edge_index] == color) && (flag == 0))
+        if ((edge_index >= 0) && (colors[edge_index] == color) && (flag == 0))
         {
             printf("Handling push for edge %d, %d of color %d, edge index %d\n", u, dest, color, edge_index);
             int d = (excess[u] > cf[edge_index]) ? cf[edge_index] : excess[u]; // min
@@ -200,7 +201,7 @@ int Graph::maxFlowParallel(int s, int t)
         while (used_colors[u].count(color) || used_colors[v].count(color)) {
             color++;
         }
-        printf("Edge %d to %d has color %d\n", u, v, color);
+        printf("Edge %d to %d with index %d has color %d\n", u, v, idx, color);
         h_colors[idx] = color;
         used_colors[u].insert(color);
         used_colors[v].insert(color);
