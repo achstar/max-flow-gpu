@@ -9,12 +9,37 @@
 #include <set>
 #define INF 1e9
 
+void Graph::init_preflow_cuda(int s)
+{
+    vertices[s].label=N;
+    // go through all outgoing edges from source
+    for(int i = 0; i < vertices[s].outgoing_edges.size(); i++){
+        Edge& curr_edge = vertices[s].outgoing_edges[i];
+        Vertex &dest_vertex = vertices[curr_edge.dest];
+
+        // update flow for this edge --> capacity
+        curr_edge.flow = curr_edge.capacity;
+        curr_edge.capacity = 0;
+
+        // update excess on node we push to
+        dest_vertex.excess += curr_edge.flow;
+
+        // take care of reverse edge from dest node
+        for(int j = 0; j < dest_vertex.outgoing_edges.size(); j++){
+            if(dest_vertex.outgoing_edges[j].dest == s){
+                dest_vertex.outgoing_edges[j].capacity += curr_edge.flow;
+                excess_total += curr_edge.flow;
+            }
+        }        
+    }
+}
+
 __global__ void
 push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf, int* edge_starts, int* edge_dests, int* reverse_edge_index, 
             int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if ((u < num_nodes) && (u != sink))
+    if ((u <= num_nodes + 1) && (u != sink))
     {
         lflag[u] = 0;
         if ((excess[u] > 0) && (labels[u] < num_nodes))
@@ -56,7 +81,7 @@ relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, in
                int color, int* colors, int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if ((u < num_nodes) && (u != sink))
+    if ((u <= num_nodes + 1) && (u != sink))
     {
         int flag = lflag[u];
         int dest = v[u];
@@ -89,25 +114,26 @@ relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, in
 }
 
 void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, 
-                          std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index, std::vector<bool>& marked)
+    std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index, std::vector<bool>& marked)
 {
     // ensure that source label is no more than 1 greater than dest label
-    int index = 0;
     for (int u = 0; u < num_nodes; u++)
     {
         int source_label = labels[u];
-        for (const Edge& e : vertices[u].outgoing_edges) {
-            int v = e.dest;
+        int start = edge_starts[u];
+        int end = edge_starts[u + 1];
+        for (int i = start; i < end; i++){
+            int v = edge_dests[i];
             int dest_label = labels[v];
+            // what does this do lol 
             if (source_label > dest_label + 1)
             {
-                int flow = cf[index];
+                int flow = cf[i];
                 excess[u] -= flow;
                 excess[v] += flow;
-                cf[reverse_edge_index[index]] += flow;
-                cf[index] = 0;
+                cf[reverse_edge_index[i]] += flow;
+                cf[i] = 0;
             }
-            index++;
         }
     }
 
@@ -118,19 +144,22 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
     labels[sink] = 0;
     visited[sink] = true;
     q.push(sink);
-
     while (!q.empty()) {
         // pop from queue
         int u = q.front(); 
         q.pop();
-        
+
         int start = edge_starts[u];
         int end = edge_starts[u + 1];
         for (int i = start; i < end; i++)
         {
             int v = edge_dests[i];
+
             if (cf[reverse_edge_index[i]] > 0 && !visited[v]) // reverse residual edge exists
             {
+                if(v == source){
+                    printf("global relabel hit source\n");
+                }
                 labels[v] = labels[u] + 1; // 1 more than parent node height
                 visited[v] = true;
                 q.push(v);
@@ -146,7 +175,8 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
     }
 
     for (int u = 0; u < num_nodes; u++) {
-        if (!visited[u] && !marked[u]) { // if not visited and not relabeled
+        if (!visited[u] && u != source) { // if not visited and not relabeled
+            // if(u == source) printf("source\n");
             excess_total -= excess[u];
             marked[u] = true;
             excess[u] = 0;
@@ -168,7 +198,7 @@ int Graph::maxFlowParallel(int s, int t)
     std::vector<int> h_cf(M, 0); // will need to adjust this for larger test cases because we will run out of memory
     std::vector<int> h_reverse_edge_index(M, 0);
     std::unordered_map<std::pair<int,int>, int, pair_hash> edge_to_index;
-    init_preflow(s);
+    init_preflow_cuda(s);
     printf("Done initializing preflow with excess total %d\n", excess_total);
     int index = 0;
     for (int u = 0; u < N; u++) {

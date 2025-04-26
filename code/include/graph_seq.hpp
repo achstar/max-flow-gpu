@@ -42,6 +42,7 @@ class Graph
     int excess_total = 0;
 
     void init_preflow(int s);
+    void init_preflow_cuda(int s);
 
     bool push(Vertex& vertex);
 
