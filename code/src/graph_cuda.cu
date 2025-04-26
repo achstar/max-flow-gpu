@@ -6,7 +6,7 @@
 #include "graph_seq.hpp"
 #include <chrono>
 #include <climits>
-#include <set>
+#include <unordered_set>
 #define INF 1e9
 
 void Graph::init_preflow_cuda(int s)
@@ -62,7 +62,7 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
                         v[u] = curr_v;
                         min_label = curr_label;
                         edge_idx[u] = i;
-                        printf("Index for node %d to %d is %d\n", u, curr_v, i);
+                        // printf("Index for node %d to %d is %d\n", u, curr_v, i);
                         break;
                     }
                 }
@@ -88,12 +88,21 @@ color_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int*
         int edge_index = edge_idx[u];
         if ((edge_index >= 0) && (colors[edge_index] == color) && (flag == 0))
         {
-            printf("Handling push for edge %d, %d of color %d, edge index %d\n", u, dest, color, edge_index);
+            // printf("Handling push for edge %d, %d of color %d, edge index %d\n", u, dest, color, edge_index);
+            if (u == 6 && dest == 7)
+            {
+                // printf("Initial Flow values for edge 6, 7: %d, 7, 6: %d\n", cf[edge_index], cf[reverse_edge_index[edge_index]]);
+            }
             int d = (excess[u] > cf[edge_index]) ? cf[edge_index] : excess[u]; // min
             cf[reverse_edge_index[edge_index]] += d;
+            
             cf[edge_index] -= d;
             excess[dest] += d;
             excess[u] -= d;
+            if (u == 6 && dest == 7)
+            {
+                // printf("Flow values for edge 6, 7: %d, 7, 6: %d\n", cf[edge_index], cf[reverse_edge_index[edge_index]]);
+            }
         }
     }
 }
@@ -121,7 +130,7 @@ relabel_kernel(int num_nodes, int sink, int* cf, int* labels, int* edge_starts, 
             }
             int prev_label = labels[u];
             labels[u] = min_label + 1;
-            printf("Relabeled node %d to %d from prev label %d\n", u, labels[u], prev_label);
+            // printf("Relabeled node %d to %d from prev label %d\n", u, labels[u], prev_label);
         }
     }
 }
@@ -143,7 +152,13 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
             {
                 int flow = cf[i];
                 excess[u] -= flow;
+                // if (excess[u] < 0)
+                // {
+                //     printf("ALERT ALERT NEGATIVE NODE %d with excess %d, dest node %d\n", u, excess[u], v);
+                // }
                 excess[v] += flow;
+                // printf("Changing excess at node %d in global relabel to %d from %d\n", v, excess[v], excess[v] - flow);
+                // printf("Cf reverse residual %d with edge (%d, %d)\n", cf[reverse_edge_index[i]], u, v);
                 cf[reverse_edge_index[i]] += flow;
                 cf[i] = 0;
             }
@@ -188,8 +203,9 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
     }
 
     for (int u = 0; u < num_nodes; u++) {
-        if (!visited[u] && u != source) { // if not visited and not relabeled
+        if (!visited[u]) { // if not visited and not relabeled
             // if(u == source) printf("source\n");
+            // printf("Untouched node is %d, excess is %d\n", u, excess[u]);
             excess_total -= excess[u];
             marked[u] = true;
             excess[u] = 0;
@@ -232,7 +248,8 @@ int Graph::maxFlowParallel(int s, int t)
     h_edge_starts[N] = index; // end index of last vertex
     // For populating rev_edge_index
     std::vector<int> h_colors(M, -1); // will hold color index for each edge
-    std::unordered_map<int, std::set<int>> used_colors;
+    std::unordered_map<int, std::unordered_set<int>> used_colors;
+    std::vector<int> next_color(N, 0); // next available color for each node
     int max_color = 0;
     for (const auto& [key, idx] : edge_to_index) {
         int u = key.first;
@@ -240,16 +257,16 @@ int Graph::maxFlowParallel(int s, int t)
         int r_idx = edge_to_index[{v, u}];
         h_reverse_edge_index[idx] = r_idx;
 
-        int color = 0;
-        while (used_colors[u].count(color) || used_colors[v].count(color)) {
-            color++;
-        }
-        printf("Edge %d to %d with index %d has color %d\n", u, v, idx, color);
+        int color = max(next_color[u], next_color[v]);
+        next_color[u]++;
+        next_color[v]++;
+        // printf("Edge %d to %d with index %d has color %d\n", u, v, idx, color);
         h_colors[idx] = color;
-        used_colors[u].insert(color);
-        used_colors[v].insert(color);
+        // used_colors[u].insert(color);
+        // used_colors[v].insert(color);
         max_color = std::max(max_color, color);
     }
+    printf("Done initializing graph colors\n");
     int num_colors = max_color + 1;
     // Allocate device memory
     int* d_excess, *d_labels, *d_edge_starts, *d_edge_dests, *d_cf, *d_reverse_edge_index, *d_colors, *d_lflag, *d_v, *d_edge_idx;
@@ -281,15 +298,15 @@ int Graph::maxFlowParallel(int s, int t)
         while (cycle > 0)
         {
             push_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, d_lflag, d_v, d_edge_idx);
-            cudaDeviceSynchronize(); // needed?
+            // cudaDeviceSynchronize(); // needed?
             for (int c = 0; c < num_colors; c++)
             {
-                printf("Relabeling color: %d\n", c);
+                // printf("Relabeling color: %d\n", c);
                 color_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, c, d_colors, d_lflag, d_v, d_edge_idx);
-                cudaDeviceSynchronize(); // needed?
+                // cudaDeviceSynchronize(); // needed?
             }
             relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, t, d_cf, d_labels, d_edge_starts, d_edge_dests, d_lflag);
-            cudaDeviceSynchronize(); // needed?
+            // cudaDeviceSynchronize(); // needed?
             cycle--;
         }
         
@@ -298,8 +315,8 @@ int Graph::maxFlowParallel(int s, int t)
         // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_cf.data(), d_cf, N*N*sizeof(int), cudaMemcpyDeviceToHost);
-
+        cudaMemcpy(h_cf.data(), d_cf, M*sizeof(int), cudaMemcpyDeviceToHost);
+        printf("Excess total: %d\n", excess_total);
         globalRelabel(N, s, t, h_excess, h_labels, h_cf, h_edge_starts, h_edge_dests, h_reverse_edge_index, marked);
         // for(int l : h_labels){
         //     if(l >= N){
@@ -308,7 +325,7 @@ int Graph::maxFlowParallel(int s, int t)
         //         break;
         //     }
         // }
-        printf("Excess total: %d\n", excess_total);
+        
         printf("Excess target: %d and %d\n", h_excess[t], h_excess[s]);
     }
     cudaFree(d_excess);
