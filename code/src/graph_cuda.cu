@@ -99,7 +99,7 @@ color_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int*
 }
 
 __global__ void
-relabel_kernel(int num_nodes, int sink, int* labels, int* edge_starts, int* edge_dests, int* lflag)
+relabel_kernel(int num_nodes, int sink, int* cf, int* labels, int* edge_starts, int* edge_dests, int* lflag)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
     if ((u < num_nodes) && (u != sink))
@@ -113,12 +113,15 @@ relabel_kernel(int num_nodes, int sink, int* labels, int* edge_starts, int* edge
             for (int i = start; i < end; i++)
             {
                 int neighbor = edge_dests[i];
-                if (labels[neighbor] < min_label)
+                int capacity = cf[i];
+                if ((capacity > 0) && (labels[neighbor] < min_label))
                 {
                     min_label = labels[neighbor];
                 }
             }
+            int prev_label = labels[u];
             labels[u] = min_label + 1;
+            printf("Relabeled node %d to %d from prev label %d\n", u, labels[u], prev_label);
         }
     }
 }
@@ -285,7 +288,7 @@ int Graph::maxFlowParallel(int s, int t)
                 color_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, c, d_colors, d_lflag, d_v, d_edge_idx);
                 cudaDeviceSynchronize(); // needed?
             }
-            relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, t, d_labels, d_edge_starts, d_edge_dests, d_lflag);
+            relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, t, d_cf, d_labels, d_edge_starts, d_edge_dests, d_lflag);
             cudaDeviceSynchronize(); // needed?
             cycle--;
         }
