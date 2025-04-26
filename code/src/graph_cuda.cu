@@ -39,10 +39,10 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
             int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if ((u <= num_nodes + 1) && (u != sink))
+    if ((u < num_nodes) && (u != sink))
     {
         lflag[u] = 0;
-        if ((excess[u] > 0) && (labels[u] < num_nodes))
+        if ((excess[u] > 0) && (labels[u] <= num_nodes + 1))
         {
             lflag[u] = 1;
             int min_label = INF;
@@ -81,7 +81,7 @@ relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, in
                int color, int* colors, int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if ((u <= num_nodes + 1) && (u != sink))
+    if ((u < num_nodes) && (u != sink))
     {
         int flag = lflag[u];
         int dest = v[u];
