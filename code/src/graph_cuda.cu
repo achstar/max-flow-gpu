@@ -45,7 +45,7 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
         if ((excess[u] > 0) && (labels[u] <= num_nodes + 1))
         {
             lflag[u] = 1;
-            int min_label = INF;
+            int min_label = labels[u];
             int start = edge_starts[u];
             int end = edge_starts[u + 1];
             for (int i = start; i < end; i++)
@@ -77,7 +77,7 @@ push_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* 
 }
 
 __global__ void
-relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf, int* edge_starts, int* edge_dests, int* reverse_edge_index, 
+color_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf, int* edge_starts, int* edge_dests, int* reverse_edge_index, 
                int color, int* colors, int* lflag, int* v, int* edge_idx)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -95,6 +95,16 @@ relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, in
             excess[dest] += d;
             excess[u] -= d;
         }
+    }
+}
+
+__global__ void
+relabel_kernel(int num_nodes, int sink, int* labels, int* edge_starts, int* edge_dests, int* lflag)
+{
+    unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if ((u < num_nodes) && (u != sink))
+    {
+        int flag = lflag[u];
         if (flag == 1)
         {
             int min_label = INT_MAX;
@@ -272,9 +282,11 @@ int Graph::maxFlowParallel(int s, int t)
             for (int c = 0; c < num_colors; c++)
             {
                 printf("Relabeling color: %d\n", c);
-                relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, c, d_colors, d_lflag, d_v, d_edge_idx);
+                color_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, c, d_colors, d_lflag, d_v, d_edge_idx);
                 cudaDeviceSynchronize(); // needed?
             }
+            relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, t, d_labels, d_edge_starts, d_edge_dests, d_lflag);
+            cudaDeviceSynchronize(); // needed?
             cycle--;
         }
         
