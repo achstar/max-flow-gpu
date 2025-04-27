@@ -46,7 +46,7 @@ class Graph
     bool push(Vertex& vertex);
 
     void relabel(Vertex& vertex);
-    void globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index, std::vector<bool>& marked);
+    void globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index);
 
 public:
 

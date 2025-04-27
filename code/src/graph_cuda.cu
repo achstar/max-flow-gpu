@@ -59,7 +59,7 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
 }
 
 void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, 
-                          std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index, std::vector<bool>& marked)
+                          std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index)
 {
     // ensure that source label is no more than 1 greater than dest label
     int index = 0;
@@ -103,9 +103,6 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
 
             if (cf[reverse_edge_index[i]] > 0 && !visited[v]) // reverse residual edge exists
             {
-                if(v == source){
-                    printf("global relabel hit source\n");
-                }
                 labels[v] = labels[u] + 1; // 1 more than parent node height
                 visited[v] = true;
                 q.push(v);
@@ -115,9 +112,7 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
 
     for (int u = 0; u < num_nodes; u++) {
         if (!visited[u] && u != source) { // if not visited and not relabeled
-            // if(u == source) printf("source\n");
             excess_total -= excess[u];
-            marked[u] = true;
             excess[u] = 0;
         }
     }
@@ -128,7 +123,6 @@ int Graph::maxFlowParallel(int s, int t)
     int threadsPerBlock = 256;
     int numberOfBlocks = (N / threadsPerBlock) + 1;
     // Host data structures (excess, labels, capacity/flow)
-    std::vector<bool> marked(N, false);
     std::vector<int> h_excess(N, 0);
     std::vector<int> h_labels(N, 0);
     // necessary to have "flattened" ds for GPU locality
@@ -195,9 +189,8 @@ int Graph::maxFlowParallel(int s, int t)
         cudaMemcpy(h_cf.data(), d_cf, M*sizeof(int), cudaMemcpyDeviceToHost);
 
         // printf("global relabeling...\n");
-        globalRelabel(N, s, t, h_excess, h_labels, h_cf, h_edge_starts, h_edge_dests, h_reverse_edge_index, marked);
+        globalRelabel(N, s, t, h_excess, h_labels, h_cf, h_edge_starts, h_edge_dests, h_reverse_edge_index);
         // printf("finished global relabeling...\n");
-        
         iter++;
     }
     cudaFree(d_excess);
