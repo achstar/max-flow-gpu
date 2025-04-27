@@ -258,9 +258,9 @@ int Graph::maxFlowParallel(int s, int t)
         h_reverse_edge_index[idx] = r_idx;
 
         int color = max(next_color[u], next_color[v]);
-        next_color[u]++;
-        next_color[v]++;
-        // printf("Edge %d to %d with index %d has color %d\n", u, v, idx, color);
+        next_color[u] = color + 1;
+        next_color[v] = color + 1;
+        printf("Edge %d to %d with index %d has color %d\n", u, v, idx, color);
         h_colors[idx] = color;
         // used_colors[u].insert(color);
         // used_colors[v].insert(color);
