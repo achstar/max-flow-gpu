@@ -7,32 +7,8 @@
 #include "graph_seq.hpp"
 
 #define INF 1e9
-void Graph::init_preflow_cuda(int s)
-{
-    vertices[s].label=N;
-    // go through all outgoing edges from source
-    for(int i = 0; i < vertices[s].outgoing_edges.size(); i++){
-        Edge& curr_edge = vertices[s].outgoing_edges[i];
-        Vertex &dest_vertex = vertices[curr_edge.dest];
-
-        // update flow for this edge --> capacity
-        curr_edge.flow = curr_edge.capacity;
-        curr_edge.capacity = 0;
-
-        // update excess on node we push to
-        dest_vertex.excess += curr_edge.flow;
-
-        // take care of reverse edge from dest node
-        for(int j = 0; j < dest_vertex.outgoing_edges.size(); j++){
-            if(dest_vertex.outgoing_edges[j].dest == s){
-                dest_vertex.outgoing_edges[j].capacity += curr_edge.flow;
-                excess_total += curr_edge.flow;
-            }
-        }        
-    }
-}
 __global__ void
-push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf,  int* edge_starts, int* edge_dests, int* reverse_edge_index, int* flag)
+push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf,  int* edge_starts, int* edge_dests, int* reverse_edge_index)
 {
     unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
     if ((u < num_nodes) && (u != sink))
@@ -45,19 +21,6 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                 int e_prime = excess[u];
                 int min_label = INF;
                 int min_v = 0;
-                // for (int v = 0; v < num_nodes; v++)
-                // {
-                //     if (cf_adj[u*num_nodes + v] > 0)
-                //     {
-                //         // printf("Residual at edge (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
-                //         int curr_label = labels[v];
-                //         if (curr_label < min_label)
-                //         {
-                //             min_v = v;
-                //             min_label = curr_label;
-                //         }
-                //     }
-                // }
                 int start = edge_starts[u];
                 int end = edge_starts[u + 1];
                 int min_edge_idx = 0;
@@ -65,13 +28,8 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                 {
                     int v = edge_dests[i];
                     int capacity = cf[i];
-                    // if(u == 84822){
-                    //     printf("dest is %d, capacity is %d, label is %d\n", v, capacity, labels[v]);
-                    // }
                     if (capacity > 0)
-                    {
-                        // printf("Residual at edge (%d, %d) is %d\n", u, v, cf_adj[u*num_nodes + v]);
-                        
+                    {                        
                         int curr_label = labels[v];
                         if (curr_label < min_label)
                         {
@@ -81,50 +39,21 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                         }
                     }
                 }
-                // if(u == 88422){
-                //     printf("the min is %d for node %d\n", min_v, u);
-                // }
-                // if(min_label == num_nodes){
-                //     printf("the min is the source label for node %d\n", u);
-                // }
 
-                // printf("lowest dest node is %d, with label %d, u is %d\n", min_v, min_label, u);
                 if (labels[u] > min_label)
                 {
-                    // printf("Excess of %d is %d\n", min_v, excess[min_v]);
                     int d = min(e_prime, cf[min_edge_idx]);
-                    // printf("waiting on atomic...\n");
                     atomicAdd(&cf[reverse_edge_index[min_edge_idx]], d);
                     atomicSub(&cf[min_edge_idx], d);
                     atomicAdd(&excess[min_v], d);
                     atomicSub(&excess[u], d);
-                    // printf("done with atomic!\n");
-
-                    // if(min_v == source){
-                    //     printf("Pushing to source from node %d\n", u);
-                    // }
-                    // else{
-                    //     printf("minv is %d\n and label is %d\n", min_v, min_label);
-                    // }
-                    // printf("Pushing %d at edge (%d, %d)\n", d, u, min_v);
-                    // printf("Excess of %d is now updated to %d\n", min_v, excess[min_v]);
                 }
                 else
                 {
-                    labels[u] = min_label + 1;
-                    // if(labels[u] > num_nodes){
-                    //     printf("relabeling\n");
-                    // }
-                    
+                    atomicMin(&labels[u], min_label + 1);
                 }
             }
-            // if(labels[u] > num_nodes - 1 && u != source){
-            //     printf("u: %d label: %d\n", u, labels[u], num_nodes);
-            //     // printf("excess at source: %d\n", excess[source]);
-            //     // *flag = 1;
-            // }
             cycle--;
-            // printf("cycle: %d\n", cycle);
         }
     }
 }
@@ -182,13 +111,6 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
                 q.push(v);
             }
         }
-        // for (int v = 0; v < num_nodes; v++) {
-        //     if (cf_adj[v*num_nodes + u] > 0 && !visited[v]) { // reverse residual edge exists
-        //         labels[v] = labels[u] + 1; // 1 more than parent node height
-        //         visited[v] = true;
-        //         q.push(v);
-        //     }
-        // }
     }
 
     for (int u = 0; u < num_nodes; u++) {
@@ -208,7 +130,6 @@ int Graph::maxFlowParallel(int s, int t)
     // Host data structures (excess, labels, capacity/flow)
     std::vector<bool> marked(N, false);
     std::vector<int> h_excess(N, 0);
-    std::vector<int> h_flag(1, 0);
     std::vector<int> h_labels(N, 0);
     // necessary to have "flattened" ds for GPU locality
     std::vector<int> h_edge_starts(N+1, 0);
@@ -216,10 +137,9 @@ int Graph::maxFlowParallel(int s, int t)
     std::vector<int> h_cf(M, 0); // will need to adjust this for larger test cases because we will run out of memory
     std::vector<int> h_reverse_edge_index(M, 0);
     std::unordered_map<std::pair<int,int>, int, pair_hash> edge_to_index;
-    init_preflow_cuda(s);
+    init_preflow(s);
     printf("Done initializing preflow with excess total %d\n", excess_total);
     int index = 0;
-    h_flag[0] = 0;
     for (int u = 0; u < N; u++) {
         h_labels[u] = vertices[u].label;
         h_excess[u] = vertices[u].excess;
@@ -245,55 +165,40 @@ int Graph::maxFlowParallel(int s, int t)
     }
 
     // Allocate device memory
-    int* d_excess, *d_labels, *d_edge_starts, *d_edge_dests, *d_cf, *d_reverse_edge_index, *d_flag;
+    int* d_excess, *d_labels, *d_edge_starts, *d_edge_dests, *d_cf, *d_reverse_edge_index;
     cudaMalloc((void **)&d_excess, N*sizeof(int));
     cudaMalloc((void **)&d_labels, N*sizeof(int));
     cudaMalloc((void **)&d_edge_starts, (N + 1)*sizeof(int));
     cudaMalloc((void **)&d_edge_dests, M*sizeof(int));
     cudaMalloc((void **)&d_cf, M*sizeof(int));
     cudaMalloc((void **)&d_reverse_edge_index, M*sizeof(int));
-    cudaMalloc((void **)&d_flag, sizeof(int));
 
     cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cf, h_cf.data(), M*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_edge_starts, h_edge_starts.data(), (N+1)*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_edge_dests, h_edge_dests.data(), M*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_reverse_edge_index, h_reverse_edge_index.data(), M*sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_flag, h_flag.data(), sizeof(int), cudaMemcpyHostToDevice);
     auto start = chrono::high_resolution_clock::now();
     printf("Starting loop\n");
     int iter = 0;
     while (excess_total != h_excess[s] + h_excess[t])
     {
-        printf("Iteration %d: excess_total = %d, e(s) + e(t) = %d + %d = %d. Source label: %d\n", iter, excess_total, h_excess[s], h_excess[t], h_excess[s]+h_excess[t], h_labels[s]);
+        // printf("Iteration %d: excess_total = %d, e(s) + e(t) = %d + %d = %d. Source label: %d\n", iter, excess_total, h_excess[s], h_excess[t], h_excess[s]+h_excess[t], h_labels[s]);
         cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_cf, h_cf.data(), M*sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_flag, h_flag.data(), sizeof(int), cudaMemcpyHostToDevice);
         // printf("Launching kernel\n");
-        push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index, d_flag);
+        push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index);
         // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_cf.data(), d_cf, M*sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_flag.data(), d_flag, sizeof(int), cudaMemcpyDeviceToHost);
-        if(h_flag[0] == 1){
-            // printf("set flag\n");
-            excess_total = h_excess[s] + h_excess[t];
-            break;
-        }
+
         // printf("global relabeling...\n");
         globalRelabel(N, s, t, h_excess, h_labels, h_cf, h_edge_starts, h_edge_dests, h_reverse_edge_index, marked);
         // printf("finished global relabeling...\n");
         
         iter++;
-        // for(int l : h_labels){
-        //     if(l > N+10){
-        //         // printf("setting excess_total now ....\n");
-        //         excess_total = h_excess[s] + h_excess[t];
-        //         break;
-        //     }
-        // }
     }
     cudaFree(d_excess);
     cudaFree(d_labels);
