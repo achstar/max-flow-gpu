@@ -54,6 +54,7 @@ public:
     void addEdge(int src, int dest, int capacity, int flow); // function to add an edge
     int check_excess();
     int maxFlowSeq(int s, int t); // function that returns maximum flow from source s to sink t
+    int maxFlowOmp(int s, int t); // function that returns maximum flow from source s to sink t
     int maxFlowParallel(int s, int t);
     Graph(int n, int m, int source, int sink);
 };
