@@ -53,12 +53,10 @@ bool Graph::push(Vertex& vertex){
     for(int i = 0; i < vertex.outgoing_edges.size(); i++){
         Edge& curr_edge = vertex.outgoing_edges[i];
         Vertex& dest_vertex = vertices[curr_edge.dest];
-        // printf("{%d, %d} with capacity %d and flow %d\n", curr_edge.src, curr_edge.dest, curr_edge.capacity, curr_edge.flow);
         if(curr_edge.capacity != 0 && vertex.excess > 0){
             // current label is higher, we can push
             if(vertex.label == dest_vertex.label + 1){
                 int flow = min(vertex.excess, curr_edge.capacity);
-                // printf("Pushing %d flow... from node %d to node %d\n", flow, vertex.id, dest_vertex.id);
                 // add flow 
                 curr_edge.flow += flow;
                 curr_edge.capacity -= flow;
@@ -70,6 +68,7 @@ bool Graph::push(Vertex& vertex){
                     if(dest_vertex.outgoing_edges[j].dest == vertex.id){
                         // add to capacity of residual graph edge
                         dest_vertex.outgoing_edges[j].capacity += flow;
+                        break;
                     }
                 }
                 return true;
@@ -90,12 +89,6 @@ int Graph::maxFlowSeq(int s, int t)
 {
     init_preflow(s);
     printf("done initializing preflow\n");
-    // for(int i = 0; i < vertices.size(); i++){
-    //     printf("\nVertex %d - label: %d, excess: %d\n", vertices[i].id, vertices[i].label, vertices[i].excess);
-    //     for(int j = 0; j < vertices[i].outgoing_edges.size(); j++){
-    //         printf("{%d, %d} has cap: %d and flow: %d\n", vertices[i].outgoing_edges[j].src,vertices[i].outgoing_edges[j].dest, vertices[i].outgoing_edges[j].capacity,vertices[i].outgoing_edges[j].flow);
-    //     }
-    // }
     int iter = 1;
     printf("Excess total: %d\n", excess_total);
     while(excess_total != vertices[s].excess + vertices[t].excess){
@@ -116,12 +109,6 @@ int Graph::maxFlowSeq(int s, int t)
                 }
             }
         }
-        // for(int i = 0; i < vertices.size(); i++){
-        //     printf("\nVertex %d - label: %d, excess: %d\n", vertices[i].id, vertices[i].label, vertices[i].excess);
-        //     for(int j = 0; j < vertices[i].outgoing_edges.size(); j++){
-        //         printf("{%d, %d} has cap: %d and flow: %d\n", vertices[i].outgoing_edges[j].src,vertices[i].outgoing_edges[j].dest, vertices[i].outgoing_edges[j].capacity,vertices[i].outgoing_edges[j].flow);
-        //     }
-        // }
         iter++;
     }
     return vertices[t].excess;
