@@ -39,7 +39,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (input_file.empty() || (version != "seq" && version != "cuda")) {
+    if (input_file.empty() || (version != "seq" && version != "cuda" && version != "omp")) {
         usage(argv[0]);
         return 1;
     }
@@ -118,6 +118,10 @@ int main(int argc, char** argv)
     else if (version == "cuda")
     {
         result = g.maxFlowParallel(source_node, sink_node);
+    }
+    else if (version == "omp")
+    {
+        result = g.maxFlowOmp(source_node, sink_node);
     }
     double endTime = CycleTimer::currentSeconds();
     auto end = chrono::high_resolution_clock::now();
