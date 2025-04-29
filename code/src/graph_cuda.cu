@@ -15,8 +15,8 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
 {
     cg::grid_group grid = cg::this_grid();
     unsigned int u_base = (blockIdx.x * blockDim.x) + threadIdx.x;
-    int cycle = num_nodes;
-    while (cycle > 0)
+    int cycles = num_nodes;
+    while (cycles > 0)
     {
         for (unsigned int u = u_base; u < num_nodes; u += blockDim.x * gridDim.x)
         {
@@ -68,7 +68,7 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                 }
             }
         }
-        cycle--;
+        cycles--;
         grid.sync();
     }
 }
