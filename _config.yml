@@ -9,6 +9,7 @@ header_pages:
   - index.md
   - proposal.md
   - milestone.md
+  - final.md
 
 # Enable Markdown & Plugins
 markdown: kramdown
