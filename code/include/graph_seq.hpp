@@ -42,17 +42,15 @@ class Graph
     int excess_total = 0;
 
     void init_preflow(int s);
-
     bool push(Vertex& vertex);
-
     void relabel(Vertex& vertex);
     void globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, std::vector<int>& edge_starts, std::vector<int>& edge_dests, std::vector<int>& reverse_edge_index);
 
 public:
 
-    void addEdge(int src, int dest, int capacity, int flow); // function to add an edge
-    int check_excess();
-    int maxFlowSeq(int s, int t); // function that returns maximum flow from source s to sink t
+    void addEdge(int src, int dest, int capacity, int flow); 
+    int maxFlowSeq(int s, int t); 
     int maxFlowParallel(int s, int t);
+    int maxFlowOmp(int s, int t);
     Graph(int n, int m, int source, int sink);
 };
