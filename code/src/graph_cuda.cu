@@ -15,7 +15,7 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
 {
     cg::grid_group grid = cg::this_grid();
     unsigned int u_base = (blockIdx.x * blockDim.x) + threadIdx.x;
-    int cycle = num_nodes; // replace with KERNEL_CYCLES?
+    int cycle = num_nodes;
     while (cycle > 0)
     {
         for (unsigned int u = u_base; u < num_nodes; u += blockDim.x * gridDim.x)
@@ -55,15 +55,13 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
                         if (labels[u] > min_label)
                         {
                             int d = min(e_prime, cf[min_edge_idx]);
-                            // printf("PUSH: u: %d, v: %d, d: %d\n", u, min_v, d);
-                            atomicAdd(&cf[reverse_edge_index[min_edge_idx]], d); // change? 
+                            atomicAdd(&cf[reverse_edge_index[min_edge_idx]], d);
                             atomicSub(&cf[min_edge_idx], d);
                             atomicAdd(&excess[min_v], d);
                             atomicSub(&excess[u], d);
                         }
                         else
                         {
-                            // atomicMin(&labels[u], min_label + 1);
                             labels[u] = min_label + 1;
                         }
                     }
@@ -73,7 +71,6 @@ push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* label
         cycle--;
         grid.sync();
     }
-    grid.sync();
 }
 
 void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, 
@@ -89,7 +86,6 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
         for (int i = start; i < end; i++){
             int v = edge_dests[i];
             int dest_label = labels[v];
-            // what does this do lol 
             if (source_label > dest_label + 1)
             {
                 int flow = cf[i];
@@ -130,7 +126,6 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
 
     for (int u = 0; u < num_nodes; u++) {
         if (!visited[u] && u != source) { // if not visited and not relabeled
-            // printf("modifying excess total for node %d with excess %d\n", u, excess[u]);
             excess_total -= excess[u];
             excess[u] = 0;
         }
@@ -139,8 +134,6 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
 
 int Graph::maxFlowParallel(int s, int t)
 {
-    // int threadsPerBlock = 256;
-    // int numberOfBlocks = (N / threadsPerBlock) + 1;
     // Host data structures (excess, labels, capacity/flow)
     std::vector<int> h_excess(N, 0);
     std::vector<int> h_labels(N, 0);
@@ -157,16 +150,13 @@ int Graph::maxFlowParallel(int s, int t)
     for (int u = 0; u < N; u++) {
         h_labels[u] = vertices[u].label;
         h_excess[u] = vertices[u].excess;
-        // printf("Node %d has label %d and excess %d\n", u, h_labels[u], h_excess[u]);
         h_edge_starts[u] = index;
         for (const Edge& e : vertices[u].outgoing_edges) {
             h_edge_dests[index] = e.dest;
             h_cf[index] = e.capacity;
-            // printf("Edge from %d to %d has capacity %d\n", e.src, e.dest, e.capacity);
             edge_to_index[{u, e.dest}] = index;
             index++;
-            // No need to add reverse flow since that should already be accounted for in init_preflow?
-            // printf("Residual capacity for (%d, %d) is %d\n", e.src, e.dest, e.capacity);
+            // No need to add reverse flow since that should already be accounted for in init_preflow
         }
     }
     h_edge_starts[N] = index; // end index of last vertex
@@ -210,11 +200,8 @@ int Graph::maxFlowParallel(int s, int t)
         cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_cf, h_cf.data(), M*sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
-        // printf("Launching kernel\n");
         void* kernel_args[] = {&N, &s, &t, &d_excess, &d_labels, &d_cf, &d_edge_starts, &d_edge_dests, &d_reverse_edge_index};
-        // push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index);
         cudaLaunchCooperativeKernel((void*)push_relabel_kernel, num_blocks, block_size, kernel_args);
-        // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_cf.data(), d_cf, M*sizeof(int), cudaMemcpyDeviceToHost);
