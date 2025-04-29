@@ -2,6 +2,7 @@
 CXX = g++
 NVCC = nvcc
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude
+NVCCFLAGS = -O3 --cudart shared -rdc=true
 
 # Source files
 MAIN_SRC = main.cpp
@@ -21,7 +22,7 @@ all: $(BIN)
 
 # Link all object files into one binary
 $(BIN): $(MAIN_OBJ) $(SEQ_OBJ) $(CUDA_OBJ)
-	$(NVCC) -std=c++17 -o $@ $^
+	$(NVCC) -std=c++17 -rdc=true -o $@ $^
 
 # Compile C++ files
 %.o: %.cpp
@@ -29,7 +30,7 @@ $(BIN): $(MAIN_OBJ) $(SEQ_OBJ) $(CUDA_OBJ)
 
 # Compile CUDA files
 %.o: %.cu
-	$(NVCC) -Xcompiler -fPIC -std=c++17 -Iinclude -c $< -o $@
+	$(NVCC) $(NVCCFLAGS) -std=c++17 -Iinclude -c $< -o $@
 
 # Clean up
 clean:

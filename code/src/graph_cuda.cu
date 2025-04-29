@@ -3,59 +3,77 @@
 #include <driver_functions.h>
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <cooperative_groups.h>
 #include <chrono>
 #include "graph_seq.hpp"
 
 #define INF 1e9
+
+namespace cg = cooperative_groups;
 __global__ void
 push_relabel_kernel(int num_nodes, int source, int sink, int* excess, int* labels, int* cf,  int* edge_starts, int* edge_dests, int* reverse_edge_index)
 {
-    unsigned int u = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if ((u < num_nodes) && (u != sink))
+    cg::grid_group grid = cg::this_grid();
+    unsigned int u_base = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int cycle = num_nodes; // replace with KERNEL_CYCLES?
+    while (cycle > 0)
     {
-        int cycle = num_nodes; // replace with KERNEL_CYCLES?
-        while (cycle > 0)
+        for (unsigned int u = u_base; u < num_nodes; u += blockDim.x * gridDim.x)
         {
-            if ((excess[u] > 0) && labels[u] <= num_nodes + 1) 
+            if ((u < num_nodes) && (u != sink))
             {
-                int e_prime = excess[u];
-                int min_label = INF;
-                int min_v = 0;
-                int start = edge_starts[u];
-                int end = edge_starts[u + 1];
-                int min_edge_idx = 0;
-                for (int i = start; i < end; i++)
+                if ((excess[u] > 0) && labels[u] <= num_nodes + 1) 
                 {
-                    int v = edge_dests[i];
-                    int capacity = cf[i];
-                    if (capacity > 0)
-                    {                        
-                        int curr_label = labels[v];
-                        if (curr_label < min_label)
+                    int e_prime = excess[u];
+                    int min_label = INF;
+                    int min_v = -1;
+                    int start = edge_starts[u];
+                    int end = edge_starts[u + 1];
+                    int min_edge_idx = 0;
+                    for (int i = start; i < end; i++)
+                    {
+                        int v = edge_dests[i];
+                        int capacity = cf[i];
+                        if (capacity > 0)
+                        {                        
+                            int curr_label = labels[v];
+                            if (curr_label < min_label)
+                            {
+                                min_v = v;
+                                min_label = curr_label;
+                                min_edge_idx = i;
+                            }
+                        }
+                    }
+
+                    if (min_v == -1)
+                    {
+                        labels[u] = num_nodes;
+                    }
+                    else
+                    {
+                        if (labels[u] > min_label)
                         {
-                            min_v = v;
-                            min_label = curr_label;
-                            min_edge_idx = i;
+                            int d = min(e_prime, cf[min_edge_idx]);
+                            // printf("PUSH: u: %d, v: %d, d: %d\n", u, min_v, d);
+                            atomicAdd(&cf[reverse_edge_index[min_edge_idx]], d); // change? 
+                            atomicSub(&cf[min_edge_idx], d);
+                            atomicAdd(&excess[min_v], d);
+                            atomicSub(&excess[u], d);
+                        }
+                        else
+                        {
+                            // atomicMin(&labels[u], min_label + 1);
+                            labels[u] = min_label + 1;
                         }
                     }
                 }
-
-                if (labels[u] > min_label)
-                {
-                    int d = min(e_prime, cf[min_edge_idx]);
-                    atomicAdd(&cf[reverse_edge_index[min_edge_idx]], d);
-                    atomicSub(&cf[min_edge_idx], d);
-                    atomicAdd(&excess[min_v], d);
-                    atomicSub(&excess[u], d);
-                }
-                else
-                {
-                    atomicMin(&labels[u], min_label + 1);
-                }
             }
-            cycle--;
         }
+        cycle--;
+        grid.sync();
     }
+    grid.sync();
 }
 
 void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>& excess, std::vector<int>& labels, std::vector<int>& cf, 
@@ -112,6 +130,7 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
 
     for (int u = 0; u < num_nodes; u++) {
         if (!visited[u] && u != source) { // if not visited and not relabeled
+            // printf("modifying excess total for node %d with excess %d\n", u, excess[u]);
             excess_total -= excess[u];
             excess[u] = 0;
         }
@@ -120,19 +139,20 @@ void Graph::globalRelabel(int num_nodes, int source, int sink, std::vector<int>&
 
 int Graph::maxFlowParallel(int s, int t)
 {
-    int threadsPerBlock = 256;
-    int numberOfBlocks = (N / threadsPerBlock) + 1;
+    // int threadsPerBlock = 256;
+    // int numberOfBlocks = (N / threadsPerBlock) + 1;
     // Host data structures (excess, labels, capacity/flow)
     std::vector<int> h_excess(N, 0);
     std::vector<int> h_labels(N, 0);
     // necessary to have "flattened" ds for GPU locality
     std::vector<int> h_edge_starts(N+1, 0);
     std::vector<int> h_edge_dests(M, 0);
-    std::vector<int> h_cf(M, 0); // will need to adjust this for larger test cases because we will run out of memory
+    std::vector<int> h_cf(M, 0);
     std::vector<int> h_reverse_edge_index(M, 0);
     std::unordered_map<std::pair<int,int>, int, pair_hash> edge_to_index;
+    fprintf(stderr, "before init preflow\n");
     init_preflow(s);
-    printf("Done initializing preflow with excess total %d\n", excess_total);
+    fprintf(stderr, "Done initializing preflow with excess total %d\n", excess_total);
     int index = 0;
     for (int u = 0; u < N; u++) {
         h_labels[u] = vertices[u].label;
@@ -172,25 +192,34 @@ int Graph::maxFlowParallel(int s, int t)
     cudaMemcpy(d_edge_starts, h_edge_starts.data(), (N+1)*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_edge_dests, h_edge_dests.data(), M*sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_reverse_edge_index, h_reverse_edge_index.data(), M*sizeof(int), cudaMemcpyHostToDevice);
+
+    // Configure the GPU
+    int device;
+    cudaGetDevice(&device);
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, device);
+    dim3 num_blocks(deviceProp.multiProcessorCount);
+    dim3 block_size(1024);
+
     auto start = chrono::high_resolution_clock::now();
     printf("Starting loop\n");
     int iter = 0;
     while (excess_total != h_excess[s] + h_excess[t])
     {
-        // printf("Iteration %d: excess_total = %d, e(s) + e(t) = %d + %d = %d. Source label: %d\n", iter, excess_total, h_excess[s], h_excess[t], h_excess[s]+h_excess[t], h_labels[s]);
+        printf("Iteration %d: excess_total = %d, e(s) + e(t) = %d + %d = %d. Source label: %d\n", iter, excess_total, h_excess[s], h_excess[t], h_excess[s]+h_excess[t], h_labels[s]);
         cudaMemcpy(d_labels, h_labels.data(), N*sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_cf, h_cf.data(), M*sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_excess, h_excess.data(), N*sizeof(int), cudaMemcpyHostToDevice);
         // printf("Launching kernel\n");
-        push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index);
+        void* kernel_args[] = {&N, &s, &t, &d_excess, &d_labels, &d_cf, &d_edge_starts, &d_edge_dests, &d_reverse_edge_index};
+        // push_relabel_kernel<<<numberOfBlocks, threadsPerBlock>>>(N, s, t, d_excess, d_labels, d_cf, d_edge_starts, d_edge_dests, d_reverse_edge_index);
+        cudaLaunchCooperativeKernel((void*)push_relabel_kernel, num_blocks, block_size, kernel_args);
         // printf("Launched kernel\n");
         cudaMemcpy(h_excess.data(), d_excess, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_labels.data(), d_labels, N*sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_cf.data(), d_cf, M*sizeof(int), cudaMemcpyDeviceToHost);
 
-        // printf("global relabeling...\n");
         globalRelabel(N, s, t, h_excess, h_labels, h_cf, h_edge_starts, h_edge_dests, h_reverse_edge_index);
-        // printf("finished global relabeling...\n");
         iter++;
     }
     cudaFree(d_excess);
